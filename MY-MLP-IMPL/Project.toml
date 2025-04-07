@@ -1,0 +1,12 @@
+name = "MYMLP"
+uuid = "3cc38821-e486-4839-8a60-8da7bc74b6b2"
+authors = ["Sebastian Pawliński"]
+version = "0.0.1"
+
+[deps]
+IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+IJulia = "1.27.0"
+Test = "1.11.0"
