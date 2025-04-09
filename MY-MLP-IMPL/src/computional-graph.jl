@@ -139,14 +139,6 @@ import Statistics: mean
 mean(x::GraphNode) = ScalarOperator(mean, x)
 Base.Broadcast.broadcasted(op::typeof(mean), x::GraphNode) = BroadcastedOperator(op, x)
 
-
-
-# TODO: Is needed?
-length(x::Variable) = length(x.output)
-
-# TODO: Is needed?
-Base.broadcastable(x::GraphNode) = x
-
 # Overloading commonly used functions
 
 Base.eltype(x::GraphNode) = eltype(x.output)
