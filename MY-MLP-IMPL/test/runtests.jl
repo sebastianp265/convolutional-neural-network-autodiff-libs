@@ -137,8 +137,14 @@ end
         true,
     )
 
-    flux_expr = Flux.Losses.crossentropy(x, y)
-    @test evaluate!(flux_expr) == evaluate!(expr)
+    x_unwraped = Float32.([i^3 for i in 1:3])
+    y_unwraped = [i for i in 1:3]
 
+    expected_crossentropy_evaluation = Flux.Losses.crossentropy(x_unwraped, y_unwraped)
+
+    @test evaluate!(expr) == expected_crossentropy_evaluation
+
+    flux_expr = Flux.Losses.crossentropy(x, y)
+    @test evaluate!(flux_expr) == expected_crossentropy_evaluation
 end
 
