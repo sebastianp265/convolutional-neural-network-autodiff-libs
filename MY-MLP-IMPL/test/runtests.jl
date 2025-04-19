@@ -128,18 +128,14 @@ end
                 *,
                 BroadcastedOperator(
                     -,
-                    Variable(
-                        [-1.0, -0.25, -0.1111111111111111],
-                    ),
+                    Variable(y_unwraped),
                 ),
                 BroadcastedOperator(
                     log,
                     BroadcastedOperator(
                         +,
-                        Variable(
-                            Float32[1.0, 0.25, 0.11111111],
-                        ),
-                        Constant(1.1920929f-7)
+                        Variable(x_unwraped),
+                        Constant(eps(Float32))
                     ),
                 )
             ),
@@ -148,9 +144,7 @@ end
                 BroadcastedOperator(
                     -,
                     Constant(1),
-                    Variable(
-                        [-1.0, -0.25, -0.1111111111111111],
-                    )
+                    Variable(y_unwraped)
                 ),
                 BroadcastedOperator(
                     log,
@@ -159,11 +153,9 @@ end
                         BroadcastedOperator(
                             -,
                             Constant(1),
-                            Variable(
-                                Float32[1.0, 0.25, 0.11111111],
-                            )
+                            Variable(x_unwraped)
                         ),
-                        Constant(1.1920929f-7)
+                        Constant(eps(Float32))
                     ),
                 ),
             ),
