@@ -69,6 +69,9 @@ end
     x = Variable(Float32.([i^3 for i in 1:3]))
     y = Variable([i for i in 1:3])
 
+    @test eltype(x) == Float32
+    @test eltype(y) == Int64
+
     expr = x .^ 2 - y .^ 3 .- 1
     @test expr == BroadcastedOperator(
         -,
@@ -102,49 +105,73 @@ end
 
     output = compute!(traverse_order)
     @test output == [1^2 - 1^3 - 1, 8^2 - 2^3 - 1, 27^2 - 3^3 - 1]
+end
 
-    # Example of an function that needs to be supported, definition taken from Flux.jl documentation
-    function crossentropy(ŷ, y; dims=1, ϵ=eps(eltype(ŷ)), agg=mean)
-        agg(-sum(y .* log.(ŷ .+ ϵ); dims))
-    end
+@testset "Computional Graph Computation" begin
+    x_unwraped = Float32.([1 / i^2 for i in 1:3])
+    y_unwraped = [-1 / i^2 for i in 1:3]
 
-    @test eltype(x) == Float32
-    expr = crossentropy(x, y)
+    x = Variable(Float32.([1 / i^2 for i in 1:3]))
+    y = Variable(([-1 / i^2 for i in 1:3]))
+
+    expr = binarycrossentropy(x, y)
 
     @test expr == ScalarOperator(
         mean,
-        ScalarOperator(
+        BroadcastedOperator(
             -,
-            ScalarOperator(
-                sum,
+            BroadcastedOperator(
+                *,
                 BroadcastedOperator(
-                    *,
+                    -,
                     Variable(
-                        [1, 2, 3]
+                        [-1.0, -0.25, -0.1111111111111111],
                     ),
+                ),
+                BroadcastedOperator(
+                    log,
                     BroadcastedOperator(
-                        log,
-                        BroadcastedOperator(
-                            +,
-                            Variable(Float32.([1, 8, 27])),
-                            Constant(eps(Float32)),
+                        +,
+                        Variable(
+                            Float32[1.0, 0.25, 0.11111111],
                         ),
+                        Constant(1.1920929f-7)
+                    ),
+                )
+            ),
+            BroadcastedOperator(
+                *,
+                BroadcastedOperator(
+                    -,
+                    Constant(1),
+                    Variable(
+                        [-1.0, -0.25, -0.1111111111111111],
                     )
                 ),
-                true,
+                BroadcastedOperator(
+                    log,
+                    BroadcastedOperator(
+                        +,
+                        BroadcastedOperator(
+                            -,
+                            Constant(1),
+                            Variable(
+                                Float32[1.0, 0.25, 0.11111111],
+                            )
+                        ),
+                        Constant(1.1920929f-7)
+                    ),
+                ),
             ),
         ),
-        true,
+        true
     )
 
-    x_unwraped = Float32.([i^3 for i in 1:3])
-    y_unwraped = [i for i in 1:3]
-
-    expected_crossentropy_evaluation = Flux.Losses.crossentropy(x_unwraped, y_unwraped)
+    expected_crossentropy_evaluation = Flux.Losses.binarycrossentropy(x_unwraped, y_unwraped)
 
     @test evaluate!(expr) == expected_crossentropy_evaluation
 
-    flux_expr = Flux.Losses.crossentropy(x, y)
+    flux_expr = Flux.Losses.binarycrossentropy(x, y)
     @test evaluate!(flux_expr) == expected_crossentropy_evaluation
 end
 

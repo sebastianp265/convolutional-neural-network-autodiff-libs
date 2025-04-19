@@ -8,4 +8,7 @@ export GraphNode, Operator, Constant, Variable,
     ScalarOperator, BroadcastedOperator, topological_sort, compute!,
     gradient, evaluate!
 
+include("loss_functions.jl")
+export crossentropy, binarycrossentropy
+
 end
