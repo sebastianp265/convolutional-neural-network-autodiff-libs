@@ -2,11 +2,20 @@ using Test
 using MYMLP
 using Statistics
 import Base: ==
+import Flux
 
-==(a::Variable, b::Variable) = a.output == b.output
-==(a::Constant, b::Constant) = a.output == b.output
-==(a::ScalarOperator, b::ScalarOperator) = a.inputs == b.inputs && a.output == b.output
-==(a::BroadcastedOperator, b::BroadcastedOperator) = a.inputs == b.inputs && a.output == b.output
+==(x::Constant{X}, y::Constant{Y}) where {X,Y} =
+    X === Y && x.output == y.output
+
+==(x::Variable{X}, y::Variable{Y}) where {X,Y} =
+    X === Y && x.output == y.output && x.gradient == y.gradient
+
+==(x::Operator{FX,X}, y::Operator{FY,Y}) where {FX,FY,X,Y} =
+    FX === FY && X === Y &&
+    x.output == y.output &&
+    x.gradient == y.gradient &&
+    all([a == b for (a, b) in zip(x.inputs, y.inputs)])
+
 
 @testset "Dense Layer Test" begin
     d = Dense(3, 2, relu)
@@ -31,57 +40,77 @@ end
 end
 
 @testset "Computional Graph Types" begin
-    x = Variable([i^2 for i in 1:10])
+    x_int = Variable([i^2 for i in 1:4])
+    x_float = Variable(Float32.([i^2 for i in 1:4]))
+
+    @test typeof(sum.(x_int)) == BroadcastedOperator{typeof(sum),Vector{Int64}}
+    @test typeof(sum.(x_float)) == BroadcastedOperator{typeof(sum),Vector{Float32}}
+    @test typeof(sum(x_int)) == ScalarOperator{typeof(sum),Int64}
+    @test typeof(sum(x_float)) == ScalarOperator{typeof(sum),Float32}
+
     two = 2
 
-    @test typeof(x * two) == ScalarOperator{typeof(*)}
-    @test typeof(x / two) == ScalarOperator{typeof(/)}
-    @test typeof(x + two) == ScalarOperator{typeof(+)}
-    @test typeof(x - two) == ScalarOperator{typeof(-)}
-    @test typeof(x^two) == ScalarOperator{typeof(^)}
-    @test typeof(x .+ two) == BroadcastedOperator{typeof(+)}
-    @test typeof(sum.(x)) == BroadcastedOperator{typeof(sum)}
-    @test typeof(sum(x)) == ScalarOperator{typeof(sum)}
+    @test typeof(x_int * two) == ScalarOperator{typeof(*),Vector{Int64}}
+    @test typeof(x_float * two) == ScalarOperator{typeof(*),Vector{Float32}}
+    @test typeof(x_int / two) == ScalarOperator{typeof(/),Vector{Int64}}
+    @test typeof(x_float / two) == ScalarOperator{typeof(/),Vector{Float32}}
+    @test typeof(x_int .^ two) == BroadcastedOperator{typeof(^),Vector{Int64}}
+    @test typeof(x_float .^ two) == BroadcastedOperator{typeof(^),Vector{Float32}}
+    @test typeof(x_int .+ two) == BroadcastedOperator{typeof(+),Vector{Int64}}
+    @test typeof(x_float .+ two) == BroadcastedOperator{typeof(+),Vector{Float32}}
 
-    y = Variable([i^2 for i in 1:10])
+    y = Variable(Float64.([i^2 for i in 1:10]))
 
-    @test typeof(x * y) == ScalarOperator{typeof(*)}
-    @test typeof(x .* y) == BroadcastedOperator{typeof(*)}
+    @test typeof(y .* x_int) == BroadcastedOperator{typeof(*),Vector{Float64}}
+    @test typeof(y .* x_float) == BroadcastedOperator{typeof(*),Vector{Float64}}
 end
 
 @testset "Computional Graph Creation" begin
     x = Variable(Float32.([i^3 for i in 1:3]))
-    y = Variable(Float32.([i^2 for i in 1:3]))
+    y = Variable([i for i in 1:3])
 
-    expr = x .^ 2 - y .^ 2 .- 1
-
+    expr = x .^ 2 - y .^ 3 .- 1
     @test expr == BroadcastedOperator(
         -,
         ScalarOperator(-,
             BroadcastedOperator(
                 ^,
-                Variable([1, 8, 27]),
+                Variable(Float32.([i^3 for i in 1:3])),
                 Constant(2)
             ),
             BroadcastedOperator(
                 ^,
-                Variable([1, 4, 9]),
-                Constant(2)
+                Variable([i for i in 1:3]),
+                Constant(3)
             )
         ),
         Constant(1)
     )
 
     traverse_order = topological_sort(expr)
+    @test map(node -> typeof(node), traverse_order) == [
+        Variable{Vector{Float32}},
+        Constant{Int64},
+        BroadcastedOperator{typeof(^),Vector{Float32}},
+        Variable{Vector{Int64}},
+        Constant{Int64},
+        BroadcastedOperator{typeof(^),Vector{Int64}},
+        ScalarOperator{typeof(-),Vector{Float32}},
+        Constant{Int64},
+        BroadcastedOperator{typeof(-),Vector{Float32}}
+    ]
+
     output = compute!(traverse_order)
-    @test output == [-1, 8^2 - 4^2 - 1, 27^2 - 9^2 - 1]
+    @test output == [1^2 - 1^3 - 1, 8^2 - 2^3 - 1, 27^2 - 3^3 - 1]
 
     # Example of an function that needs to be supported, definition taken from Flux.jl documentation
     function crossentropy(ŷ, y; dims=1, ϵ=eps(eltype(ŷ)), agg=mean)
         agg(-sum(y .* log.(ŷ .+ ϵ); dims))
     end
 
+    @test eltype(x) == Float32
     expr = crossentropy(x, y)
+
     @test expr == ScalarOperator(
         mean,
         ScalarOperator(
@@ -91,18 +120,25 @@ end
                 BroadcastedOperator(
                     *,
                     Variable(
-                        [1, 4, 9]
+                        [1, 2, 3]
                     ),
                     BroadcastedOperator(
                         log,
                         BroadcastedOperator(
                             +,
-                            Variable([1, 8, 27]),
+                            Variable(Float32.([1, 8, 27])),
                             Constant(eps(Float32)),
                         ),
                     )
                 ),
+                true,
             ),
         ),
+        true,
     )
+
+    flux_expr = Flux.Losses.crossentropy(x, y)
+    @test evaluate!(flux_expr) == evaluate!(expr)
+
 end
+

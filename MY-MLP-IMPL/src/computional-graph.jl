@@ -1,24 +1,81 @@
-abstract type GraphNode end
-abstract type Operator <: GraphNode end
+abstract type GraphNode{T} end
+abstract type Operator{F,T} <: GraphNode{T} end
 
-struct Constant{T} <: GraphNode
+import Base: eltype
+
+eltype(::GraphNode{T}) where {T} = eltype(T)
+
+struct Constant{T} <: GraphNode{T}
     output::T
 end
 
-mutable struct Variable{T} <: GraphNode
+mutable struct Variable{T} <: GraphNode{T}
     output::T
+    gradient::Union{T,Nothing}
+    Variable(output::T) where {T} = new{T}(output, nothing)
 end
 
-mutable struct ScalarOperator{F} <: Operator
+mutable struct ScalarOperator{F,T} <: Operator{F,T}
     inputs::Tuple{Vararg{GraphNode}}
-    output::Any
-    ScalarOperator(::F, args::GraphNode...) where {F} = new{F}(args, nothing)
+    output::Union{T,Nothing}
+    gradient::Union{T,Nothing}
 end
 
-mutable struct BroadcastedOperator{F} <: Operator
+function ScalarOperator(::F, input::GraphNode{T}, is_output_eltype::Bool=false) where {F,T}
+    type = if is_output_eltype
+        eltype(T)
+    else
+        T
+    end
+    ScalarOperator{F,type}(tuple(input), nothing, nothing)
+end
+
+function ScalarOperator(::F, input1::GraphNode{T1}, input2::GraphNode{T2}) where {F,T1,T2}
+    type = output_type(T1, T2)
+    ScalarOperator{F,type}(tuple(input1, input2), nothing, nothing)
+end
+
+function ScalarOperator(::F, inputs::GraphNode...) where {F}
+    error("Scalar operator is not defined on more than two arguments")
+end
+
+mutable struct BroadcastedOperator{F,T} <: Operator{F,T}
     inputs::Tuple{Vararg{GraphNode}}
-    output::Any
-    BroadcastedOperator(::F, args::GraphNode...) where {F} = new{F}(args, nothing)
+    output::Union{T,Nothing}
+    gradient::Union{T,Nothing}
+end
+
+function BroadcastedOperator(::F, input::GraphNode{T}) where {F,T}
+    BroadcastedOperator{F,T}(tuple(input), nothing, nothing)
+end
+
+function BroadcastedOperator(::F, input1::GraphNode{T1}, input2::GraphNode{T2}) where {F,T1,T2}
+    type = output_type(T1, T2)
+    BroadcastedOperator{F,type}(tuple(input1, input2), nothing, nothing)
+end
+
+function BroadcastedOperator(::F, inputs::GraphNode...) where {F}
+    error("Broadcasted operator '.$F' is not defined on arguments: $inputs")
+end
+
+function output_type(T1, T2)
+    if T1 <: AbstractArray && !(T2 <: AbstractArray)
+        return T1
+    elseif T2 <: AbstractArray && !(T1 <: AbstractArray)
+        return T2
+    elseif T1 <: AbstractArray && T2 <: AbstractArray
+        promote_el = promote_type(eltype(T1), eltype(T2))
+        if promote_el === Any
+            throw(ArgumentError("Unsupported operation: unable to promote $T1 and $T2"))
+        end
+        return Vector{promote_el}
+    else
+        promoted_type = promote_type(T1, T2)
+        if promoted_type === Any
+            throw(ArgumentError("Unsupported operation: unable to promote $T1 and $T2"))
+        end
+        return promoted_type
+    end
 end
 
 function visit!(node::GraphNode, visited::Set{GraphNode}, order::Vector{GraphNode})
@@ -41,6 +98,7 @@ function visit!(node::Operator, visited::Set{GraphNode}, order::Vector{GraphNode
 end
 
 function topological_sort(root::GraphNode)
+    # TODO: Maybe change to IdSet?
     visited = Set{GraphNode}()
     order = Vector{GraphNode}()
     visit!(root, visited, order)
@@ -59,73 +117,107 @@ function compute!(compute_order::Vector{GraphNode})
     return last(compute_order).output
 end
 
-# compute! overloading
+function evaluate!(root::GraphNode)
+    order = topological_sort(root)
+    return compute!(order)
+end
 
-compute!(::ScalarOperator{typeof(+)}, x, y) = x + y
-compute!(::ScalarOperator{typeof(-)}, x, y) = x - y
-compute!(::ScalarOperator{typeof(-)}, x) = -x
-compute!(::ScalarOperator{typeof(*)}, x, y) = x * y
-compute!(::ScalarOperator{typeof(/)}, x, y) = x / y
-compute!(::ScalarOperator{typeof(^)}, x, y) = x^y
-compute!(::ScalarOperator{typeof(sum)}, x) = sum(x)
-compute!(::ScalarOperator{typeof(sin)}, x) = sin(x)
+function backward!(::Constant)
+    nothing
+end
 
-compute!(::BroadcastedOperator{typeof(+)}, x, y) = x .+ y
-compute!(::BroadcastedOperator{typeof(-)}, x, y) = x .- y
-compute!(::BroadcastedOperator{typeof(*)}, x, y) = x .* y
-compute!(::BroadcastedOperator{typeof(/)}, x, y) = x ./ y
-compute!(::BroadcastedOperator{typeof(^)}, x, y) = x .^ y
-compute!(::BroadcastedOperator{typeof(sum)}, x) = sum.(x)
-compute!(::BroadcastedOperator{typeof(sin)}, x) = sin.(x)
+diff(::BroadcastedOperator{typeof(+)}, x, y) = tuple(1, 1)
+diff(::BroadcastedOperator{typeof(sin)}, x) = tuple(cos.(x))
+diff(::BroadcastedOperator{typeof(*)}, x, y) = tuple(y, x)
+
+function gradient(f, args...)
+    root = f(args...)
+    @assert root isa GraphNode "Function must create computional graph"
+
+    # TODO: is there a more efficient way to check shape of output?
+    # I guess not, but maybe it can be used for optimization in forward pass?
+    root.gradient = ones(size(compute!(root)))
+    order = topological_sort(root)
+
+    for node in reverse(order)
+        if node isa Operator
+            gradients = diff(node, [input.output for input in node.inputs]...) .* node.gradient
+            for (input, gradient) in zip(node.inputs, gradients)
+                if !isa(input, Constant)
+                    if isnothing(input.gradient)
+                        input.gradient = gradient
+                    else
+                        input.gradient += gradient
+                    end
+                end
+            end
+        end
+    end
+end
+
+import Statistics: mean
+
+compute!(::ScalarOperator{F}, x) where {F} = F.instance(x)
+compute!(::ScalarOperator{F}, x, y) where {F} = F.instance(x, y)
+compute!(::ScalarOperator{F}, x, y, z, args...) where {F} = error("Scalar operations on more than two arguments are disabled")
+
+compute!(::BroadcastedOperator{F}, x) where {F} = F.instance.(x)
+compute!(::BroadcastedOperator{F}, x, y) where {F} = F.instance.(x, y)
+compute!(::BroadcastedOperator{F}, x, y, z, args...) where {F} = error("Scalar operations on more than two arguments are disabled")
 
 # Base methods overloading
 
-promote_node(x::Real) = Constant(x)
+promote_node(x) = Constant(x)
 
-import Base: +, -, *, /, ^, sum, sin, log
+import Base: +, -, *, /, ^
 
 +(x::GraphNode, y::GraphNode) = ScalarOperator(+, x, y)
-+(x::Real, y::GraphNode) = ScalarOperator(+, promote_node(x), y)
-+(x::GraphNode, y::Real) = ScalarOperator(+, x, promote_node(y))
++(x, y::GraphNode) = ScalarOperator(+, promote_node(x), y)
++(x::GraphNode, y) = ScalarOperator(+, x, promote_node(y))
 Base.Broadcast.broadcasted(op::typeof(+), x::GraphNode, y::GraphNode) = BroadcastedOperator(op, x, y)
-Base.Broadcast.broadcasted(op::typeof(+), x::Real, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
-Base.Broadcast.broadcasted(op::typeof(+), x::GraphNode, y::Real) = BroadcastedOperator(op, x, promote_node(y))
+Base.Broadcast.broadcasted(op::typeof(+), x, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
+Base.Broadcast.broadcasted(op::typeof(+), x::GraphNode, y) = BroadcastedOperator(op, x, promote_node(y))
 
 -(x::GraphNode, y::GraphNode) = ScalarOperator(-, x, y)
--(x::Real, y::GraphNode) = ScalarOperator(-, promote_node(x), y)
--(x::GraphNode, y::Real) = ScalarOperator(-, x, promote_node(y))
+-(x, y::GraphNode) = ScalarOperator(-, promote_node(x), y)
+-(x::GraphNode, y) = ScalarOperator(-, x, promote_node(y))
 -(x::GraphNode) = ScalarOperator(-, x)
 Base.Broadcast.broadcasted(op::typeof(-), x::GraphNode, y::GraphNode) = BroadcastedOperator(op, x, y)
-Base.Broadcast.broadcasted(op::typeof(-), x::Real, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
-Base.Broadcast.broadcasted(op::typeof(-), x::GraphNode, y::Real) = BroadcastedOperator(op, x, promote_node(y))
+Base.Broadcast.broadcasted(op::typeof(-), x, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
+Base.Broadcast.broadcasted(op::typeof(-), x::GraphNode, y) = BroadcastedOperator(op, x, promote_node(y))
+Base.Broadcast.broadcasted(op::typeof(-), x::GraphNode) = BroadcastedOperator(op, x)
 
 *(x::GraphNode, y::GraphNode) = ScalarOperator(*, x, y)
-*(x::Real, y::GraphNode) = ScalarOperator(*, promote_node(x), y)
-*(x::GraphNode, y::Real) = ScalarOperator(*, x, promote_node(y))
+*(x, y::GraphNode) = ScalarOperator(*, promote_node(x), y)
+*(x, y) = ScalarOperator(*, x, promote_node(y))
 Base.Broadcast.broadcasted(op::typeof(*), x::GraphNode, y::GraphNode) = BroadcastedOperator(op, x, y)
-Base.Broadcast.broadcasted(op::typeof(*), x::Real, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
-Base.Broadcast.broadcasted(op::typeof(*), x::GraphNode, y::Real) = BroadcastedOperator(op, x, promote_node(y))
+Base.Broadcast.broadcasted(op::typeof(*), x, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
+Base.Broadcast.broadcasted(op::typeof(*), x::GraphNode, y) = BroadcastedOperator(op, x, promote_node(y))
 
 /(x::GraphNode, y::GraphNode) = ScalarOperator(/, x, y)
-/(x::Real, y::GraphNode) = ScalarOperator(/, promote_node(x), y)
-/(x::GraphNode, y::Real) = ScalarOperator(/, x, promote_node(y))
+/(x, y::GraphNode) = ScalarOperator(/, promote_node(x), y)
+/(x::GraphNode, y) = ScalarOperator(/, x, promote_node(y))
 Base.Broadcast.broadcasted(op::typeof(/), x::GraphNode, y::GraphNode) = BroadcastedOperator(op, x, y)
-Base.Broadcast.broadcasted(op::typeof(/), x::Real, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
-Base.Broadcast.broadcasted(op::typeof(/), x::GraphNode, y::Real) = BroadcastedOperator(op, x, promote_node(y))
+Base.Broadcast.broadcasted(op::typeof(/), x, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
+Base.Broadcast.broadcasted(op::typeof(/), x::GraphNode, y) = BroadcastedOperator(op, x, promote_node(y))
 
 ^(x::GraphNode, y::GraphNode) = ScalarOperator(^, x, y)
-^(x::Real, y::GraphNode) = ScalarOperator(^, promote_node(x), y)
-^(x::GraphNode, y::Real) = ScalarOperator(^, x, promote_node(y))
+^(x, y::GraphNode) = ScalarOperator(^, promote_node(x), y)
+^(x::GraphNode, y) = ScalarOperator(^, x, promote_node(y))
 Base.Broadcast.broadcasted(op::typeof(^), x::GraphNode, y::GraphNode) = BroadcastedOperator(op, x, y)
-Base.Broadcast.broadcasted(op::typeof(^), x::Real, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
-Base.Broadcast.broadcasted(op::typeof(^), x::GraphNode, y::Real) = BroadcastedOperator(op, x, promote_node(y))
+Base.Broadcast.broadcasted(op::typeof(^), x, y::GraphNode) = BroadcastedOperator(op, promote_node(x), y)
+Base.Broadcast.broadcasted(op::typeof(^), x::GraphNode, y) = BroadcastedOperator(op, x, promote_node(y))
 # This broadcasted operator overload is required because of Julia optimizations, 
 # x .^ 2 calls optimized implementation
 Base.broadcasted(::typeof(Base.literal_pow), ::Function, x::Variable, y::Val) =
     BroadcastedOperator(^, x, promote_node(typeof(y).parameters[1]))
 
+Base.broadcasted(f, args::GraphNode...) = BroadcastedOperator(f, args...)
+
+import Base: sum, sin, log, max
+
 # TODO: Add proper handling
-sum(x::GraphNode; dims=1) = ScalarOperator(sum, x)
+sum(x::GraphNode; dims=1) = ScalarOperator(sum, x, true)
 Base.Broadcast.broadcasted(op::typeof(sum), x::GraphNode) = BroadcastedOperator(op, x)
 
 sin(x::GraphNode) = ScalarOperator(sin, x)
@@ -134,11 +226,7 @@ Base.Broadcast.broadcasted(op::typeof(sin), x::GraphNode) = BroadcastedOperator(
 log(x::GraphNode) = ScalarOperator(log, x)
 Base.Broadcast.broadcasted(op::typeof(log), x::GraphNode) = BroadcastedOperator(op, x)
 
-import Statistics: mean
 
-mean(x::GraphNode) = ScalarOperator(mean, x)
+mean(x::GraphNode) = ScalarOperator(mean, x, true)
 Base.Broadcast.broadcasted(op::typeof(mean), x::GraphNode) = BroadcastedOperator(op, x)
 
-# Overloading commonly used functions
-
-Base.eltype(x::GraphNode) = eltype(x.output)

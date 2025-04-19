@@ -2,7 +2,7 @@ relu(x) = max.(0, x)
 
 struct Dense
     W::Matrix{Float32}
-    b::Array{Float32,1}
+    b::Vector{Float32}
     σ::Function
 end
 
