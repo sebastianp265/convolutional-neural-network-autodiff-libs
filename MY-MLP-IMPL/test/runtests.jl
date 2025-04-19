@@ -111,6 +111,10 @@ end
     x_unwraped = Float32.([1 / i^2 for i in 1:3])
     y_unwraped = [-1 / i^2 for i in 1:3]
 
+    expected_crossentropy_evaluation = Flux.Losses.binarycrossentropy(x_unwraped, y_unwraped)
+
+    @test binarycrossentropy(x_unwraped, y_unwraped) == expected_crossentropy_evaluation
+
     x = Variable(Float32.([1 / i^2 for i in 1:3]))
     y = Variable(([-1 / i^2 for i in 1:3]))
 
@@ -166,8 +170,6 @@ end
         ),
         true
     )
-
-    expected_crossentropy_evaluation = Flux.Losses.binarycrossentropy(x_unwraped, y_unwraped)
 
     @test evaluate!(expr) == expected_crossentropy_evaluation
 
