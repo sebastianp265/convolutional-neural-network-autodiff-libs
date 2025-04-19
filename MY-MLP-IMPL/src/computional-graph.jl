@@ -114,7 +114,7 @@ compute!(::ScalarOperator{F}, x, y) where {F} = F.instance(x, y)
 compute!(::ScalarOperator{F}, x, y, z, args...) where {F} = error("Scalar operations on more than two arguments are disabled")
 compute!(::BroadcastedOperator{F}, x) where {F} = F.instance.(x)
 compute!(::BroadcastedOperator{F}, x, y) where {F} = F.instance.(x, y)
-compute!(::BroadcastedOperator{F}, x, y, z, args...) where {F} = error("Scalar operations on more than two arguments are disabled")
+compute!(::BroadcastedOperator{F}, x, y, z, args...) where {F} = error("Broadcast operations on more than two arguments are disabled")
 
 function compute!(compute_order::Vector{GraphNode})
     for node in compute_order
@@ -137,9 +137,7 @@ function gradient(f, args...)
     root = f(args...)
     @assert root isa GraphNode "Function must create computional graph"
 
-    # TODO: is there a more efficient way to check shape of output?
-    # I guess not, but maybe it can be used for optimization in forward pass?
-    root.gradient = ones(size(compute!(root)))
+    root.gradient = 1.0
     order = topological_sort(root)
 
     for node in reverse(order)

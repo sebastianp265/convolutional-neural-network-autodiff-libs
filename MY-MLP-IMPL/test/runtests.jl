@@ -169,3 +169,15 @@ end
     @test evaluate!(flux_expr) == expected_crossentropy_evaluation
 end
 
+@testset "Computing Gradient" begin
+    x1 = Variable([0, π, 2π])
+    x2 = Variable([1, 2, 4])
+
+    x1_flux = [0, π, 2π]
+    x2_flux = [1, 2, 4]
+    @test Flux.gradient(x1_flux, x2_flux) do x1, x2
+        sum(x1 .* x2 .+ sin.(x1))
+    end == (cos.(x1_flux) .+ x2_flux, x1_flux)
+
+    # TODO: Write test and gradient impl
+end
