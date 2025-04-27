@@ -90,8 +90,8 @@ end
         Dense(3, 1, sigmoid)
     )
 
-    my_c.layers[1].W.output .= Float32[0.5 0.1 0.1]
-    my_c.layers[1].b.output .= Float32[0.1]
+    my_c.layers[1].weight.output .= Float32[0.5 0.1 0.1]
+    my_c.layers[1].bias.output .= Float32[0.1]
 
     my_loss(c) = binarycrossentropy(c(x), y)
     test_my_gradient(
@@ -99,7 +99,4 @@ end
         my_loss,
         my_c
     )
-
-    @show my_c.layers[1].W.output
-    @show my_c.layers[1].W.gradient
 end

@@ -58,23 +58,20 @@ function gradient!(f::Function, args...)
     end
     @assert is_output_scalar(root) "Function return value must be a scalar"
 
-    root.gradient = 1.0
+    root.gradient = one(eltype(root))
 
     order = topological_sort(root)
     compute!(order)
 
     for node in reverse(order)
         if node isa Operator
-            diffs = diff(node, [input.output for input in node.inputs]...)
-            for (input, diff) in zip(node.inputs, diffs)
+            grads = diff(node, [input.output for input in node.inputs]..., node.gradient)
+            for (input, grad) in zip(node.inputs, grads)
                 if !isa(input, Constant)
-                    @show typeof(node) size(diff) size(node.gradient)
-                    gradient = diff .* node.gradient
-                    @show gradient
                     if isnothing(input.gradient)
-                        input.gradient = gradient
+                        input.gradient = grad
                     else
-                        input.gradient += gradient
+                        input.gradient += grad
                     end
                 end
             end
@@ -85,7 +82,7 @@ function gradient!(f::Function, args...)
 end
 
 function map_args_to_gradient_result(args)
-    return tuple(map(map_single_arg, args)...)
+    return map(map_single_arg, args)
 end
 
 function map_single_arg(arg)
@@ -95,6 +92,9 @@ function map_single_arg(arg)
         return map(map_single_arg, arg)
     elseif isstructtype(typeof(arg))
         names = fieldnames(typeof(arg))
+        if length(names) == 0
+            return nothing
+        end
         vals = map(name -> getfield(arg, name), names)
         mapped = map(map_single_arg, vals)
 

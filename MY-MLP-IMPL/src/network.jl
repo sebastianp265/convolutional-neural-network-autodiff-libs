@@ -1,6 +1,6 @@
 struct Dense{T}
-    W::Variable{Matrix{T}}
-    b::Variable{Vector{T}}
+    weight::Variable{Matrix{T}}
+    bias::Variable{Vector{T}}
     σ::Function
 end
 
@@ -11,7 +11,7 @@ function Dense(in::Int, out::Int, σ::Function)
 end
 
 function (layer::Dense)(x)
-    layer.σ.(layer.W * x .+ layer.b)
+    layer.σ.(layer.weight * x .+ layer.bias)
 end
 
 struct Chain

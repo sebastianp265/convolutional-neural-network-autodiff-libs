@@ -157,54 +157,73 @@ import Base: +, -, *, /, ^
 +(x, y::GraphNode) = ScalarOperator(+, promote_node(x), y)
 +(x::GraphNode, y) = ScalarOperator(+, x, promote_node(y))
 +(x::GraphNode) = ScalarOperator(+, x)
-diff(::Operator{typeof(+)}, x, y) = tuple(1, 1)
-diff(::Operator{typeof(+)}, x) = tuple(1)
+diff(::ScalarOperator{typeof(+)}, x, y, g) = tuple(g, g)
+diff(::ScalarOperator{typeof(+)}, x, g) = tuple(g)
+diff(::BroadcastedOperator{typeof(+)}, x, y, g) = tuple(acc_to_size(g, size(x)), acc_to_size(g, size(y)))
+
+acc_to_size(g, s) = begin
+    if size(g) == s
+        return g
+    elseif s == (1,)
+        return [sum(g)]
+        # TODO: Invesitgate
+    elseif s == ()
+        return zero(eltype(g))
+    else
+        @show g s
+        error("unsupported operation")
+    end
+end
 
 -(x::GraphNode, y::GraphNode) = ScalarOperator(-, x, y)
 -(x, y::GraphNode) = ScalarOperator(-, promote_node(x), y)
 -(x::GraphNode, y) = ScalarOperator(-, x, promote_node(y))
 -(x::GraphNode) = ScalarOperator(-, x)
-diff(::Operator{typeof(-)}, x, y) = tuple(1, -1)
-diff(::Operator{typeof(-)}, x) = tuple(-1)
+diff(::Operator{typeof(-)}, x, y, g) = tuple(g, -g)
+diff(::Operator{typeof(-)}, x, g) = tuple(-g)
 
 *(x::GraphNode, y::GraphNode) = ScalarOperator(*, x, y)
 *(x, y::GraphNode) = ScalarOperator(*, promote_node(x), y)
 *(x, y) = ScalarOperator(*, x, promote_node(y))
-diff(::Operator{typeof(*)}, x, y) = tuple(y, x)
+diff(::ScalarOperator{typeof(*)}, x, y, g) = tuple(g * y', x' * g)
+diff(::BroadcastedOperator{typeof(*)}, x, y, g) = tuple(g .* y, g .* x)
 
 /(x::GraphNode, y::GraphNode) = ScalarOperator(/, x, y)
 /(x, y::GraphNode) = ScalarOperator(/, promote_node(x), y)
 /(x::GraphNode, y) = ScalarOperator(/, x, promote_node(y))
-diff(::Operator{typeof(/)}, x, y) = tuple(1 ./ y, -x ./ y .^ 2)
+diff(::BroadcastedOperator{typeof(/)}, x, y, g) = tuple(g ./ y, -g .* x ./ (y .* y))
 
 ^(x::GraphNode, y::GraphNode) = ScalarOperator(^, x, y)
 ^(x, y::GraphNode) = ScalarOperator(^, promote_node(x), y)
 ^(x::GraphNode, y) = ScalarOperator(^, x, promote_node(y))
-diff(::Operator{typeof(^)}, x, y) = tuple(y .* x .^ (y .- 1), x .^ y .* log.(x))
+diff(::BroadcastedOperator{typeof(^)}, x, y, g) = tuple(g .* y .* x .^ (y .- 1), g .* x .^ y .* log.(x))
 
 import Base: sum, sin, log, max
 import Statistics: mean
 
 # TODO: Add proper handling
 sum(x::GraphNode; dims=1) = ScalarOperator(sum, x, true)
-diff(::Operator{typeof(sum),T}, x) where {T} = tuple(ones(T, size(x)))
+diff(::ScalarOperator{typeof(sum),T}, x, g) where {T} = tuple(g .* ones(T, size(x)))
 
 sin(x::GraphNode) = ScalarOperator(sin, x)
-diff(::Operator{typeof(sin)}, x) = tuple(cos.(x))
+diff(::BroadcastedOperator{typeof(sin)}, x, g) = tuple(g .* cos.(x))
 
+# TODO: Maybe remove unnecessary scalars
 log(x::GraphNode) = ScalarOperator(log, x)
-diff(::Operator{typeof(log)}, x) = tuple(1 ./ x)
+diff(::BroadcastedOperator{typeof(log)}, x, g) = tuple(g ./ x)
 
 mean(x::GraphNode) = ScalarOperator(mean, x, true)
-diff(::Operator{typeof(mean),T}, x) where {T} = tuple(fill(one(eltype(T)) / length(x), size(x)))
+diff(::ScalarOperator{typeof(mean),T}, x, g) where {T} = tuple(fill(g * one(eltype(T)) / length(x), size(x)))
 
-max(x::GraphNode) = ScalarOperator(max, x, true)
-diff(::Operator{typeof(max)}, x) = tuple((x .== maximum(x)) .* one(eltype(x)))
-
-
-diff(::Operator{typeof(sigmoid)}, x) = tuple(exp.(-x) ./ (1 .+ exp.(-x)) .^ 2)
-diff(::Operator{typeof(relu)}, x) = tuple((x .> 0) .* one(eltype(x)))
-
+diff(::BroadcastedOperator{typeof(sigmoid)}, x, g) = begin
+    sigm = sigmoid.(x)
+    grad = sigm .* (1 .- sigm)
+    return tuple(g .* grad)
+end
+diff(::BroadcastedOperator{typeof(relu)}, x, g) = begin
+    grad = x .> 0
+    return tuple(g .* grad)
+end
 
 # Show method for debugging
 
