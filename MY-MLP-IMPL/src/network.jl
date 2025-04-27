@@ -1,26 +1,24 @@
-relu(x) = max.(0, x)
-
-struct Dense
-    W::Matrix{Float32}
-    b::Vector{Float32}
+struct Dense{T}
+    W::Variable{Matrix{T}}
+    b::Variable{Vector{T}}
     σ::Function
 end
 
 function Dense(in::Int, out::Int, σ::Function)
-    W = randn(Float32, out, in)
-    b = zeros(Float32, out)
+    W = Variable(randn(Float32, out, in), "W($in,$out)")
+    b = Variable(zeros(Float32, out), "b($in,$out)")
     Dense(W, b, σ)
 end
 
 function (layer::Dense)(x)
-    layer.σ(layer.W * x .+ layer.b)
+    layer.σ.(layer.W * x .+ layer.b)
 end
 
 struct Chain
-    layers::Tuple
+    layers::Tuple{Vararg{Dense}}
 end
 
-function Chain(layers...)
+function Chain(layers::Dense...)
     Chain(layers)
 end
 

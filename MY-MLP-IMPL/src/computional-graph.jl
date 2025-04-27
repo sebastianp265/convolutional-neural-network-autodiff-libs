@@ -7,21 +7,30 @@ eltype(::GraphNode{T}) where {T} = eltype(T)
 
 struct Constant{T} <: GraphNode{T}
     output::T
+    name::Union{String,Nothing}
+    Constant(output::T) where {T} = new{T}(output, nothing)
 end
 
 mutable struct Variable{T} <: GraphNode{T}
     output::T
-    gradient::Union{T,Nothing}
-    Variable(output::T) where {T} = new{T}(output, nothing)
+    gradient::Any
+    name::Union{String,Nothing}
+    Variable(output::T, name::Union{String,Nothing}) where {T} = new{T}(output, nothing, name)
+    Variable(output::T) where {T} = new{T}(output, nothing, nothing)
 end
 
 mutable struct ScalarOperator{F,T} <: Operator{F,T}
     inputs::Tuple{Vararg{GraphNode}}
     output::Union{T,Nothing}
-    gradient::Union{T,Nothing}
+    gradient::Any
 end
 
-function ScalarOperator(::F, input::GraphNode{T}, is_output_eltype::Bool=false) where {F,T}
+# TODO: Refactor
+function ScalarOperator(f::F, input::GraphNode{T}) where {F,T}
+    ScalarOperator(f, input, false)
+end
+
+function ScalarOperator(::F, input::GraphNode{T}, is_output_eltype) where {F,T}
     type = if is_output_eltype
         eltype(T)
     else
@@ -42,7 +51,7 @@ end
 mutable struct BroadcastedOperator{F,T} <: Operator{F,T}
     inputs::Tuple{Vararg{GraphNode}}
     output::Union{T,Nothing}
-    gradient::Union{T,Nothing}
+    gradient::Any
 end
 
 function BroadcastedOperator(::F, input::GraphNode{T}) where {F,T}
@@ -58,108 +67,79 @@ function BroadcastedOperator(::F, inputs::GraphNode...) where {F}
     error("Broadcasted operator '.$F' is not defined on arguments: $inputs")
 end
 
+throw_arg_error(T1, T2) = throw(ArgumentError("Unsupported operation: unable to promote $T1 and $T2"))
+
+
 function output_type(T1, T2)
-    if T1 <: AbstractArray && !(T2 <: AbstractArray)
+    if T1 == T2
         return T1
-    elseif T2 <: AbstractArray && !(T1 <: AbstractArray)
-        return T2
-    elseif T1 <: AbstractArray && T2 <: AbstractArray
-        promote_el = promote_type(eltype(T1), eltype(T2))
-        if promote_el === Any
-            throw(ArgumentError("Unsupported operation: unable to promote $T1 and $T2"))
+    elseif !(T1 <: AbstractArray) && !(T2 <: AbstractArray)
+        type = promote_type(T1, T2)
+        if type === Any
+            throw_arg_error(T1, T2)
         end
-        return Vector{promote_el}
+        return type
+    elseif T1 <: AbstractVector && T2 <: AbstractVector
+        type = promote_type(eltype(T1), eltype(T2))
+        if type === Any
+            throw_arg_error(T1, T2)
+        end
+        return Vector{type}
+    elseif T2 <: AbstractMatrix && T2 <: AbstractMatrix
+        type = promote_type(eltype(T1), eltype(T2))
+        if type === Any
+            throw_arg_error(T1, T2)
+        end
+        return Matrix{type}
+    elseif T1 <: AbstractVector && T2 <: AbstractMatrix ||
+           T1 <: AbstractMatrix && T2 <: AbstractVector
+        type = promote_type(eltype(T1), eltype(T2))
+        if type === Any
+            throw_arg_error(T1, T2)
+        end
+        return Matrix{type}
+    elseif T1 <: AbstractMatrix || T2 <: AbstractMatrix
+        type = promote_type(eltype(T1), eltype(T2))
+        if type === Any
+            throw_arg_error(T1, T2)
+        end
+        return Matrix{type}
+    elseif T1 <: AbstractVector || T2 <: AbstractVector
+        type = promote_type(eltype(T1), eltype(T2))
+        if type === Any
+            throw_arg_error(T1, T2)
+        end
+        return Vector{type}
     else
-        promoted_type = promote_type(T1, T2)
-        if promoted_type === Any
-            throw(ArgumentError("Unsupported operation: unable to promote $T1 and $T2"))
-        end
-        return promoted_type
+        throw_arg_error(T1, T2)
     end
 end
 
-function visit!(node::GraphNode, visited::Set{GraphNode}, order::Vector{GraphNode})
-    if node ∉ visited
-        push!(visited, node)
-        push!(order, node)
-    end
-    return nothing
-end
+import Base: ==
 
-function visit!(node::Operator, visited::Set{GraphNode}, order::Vector{GraphNode})
-    if node ∉ visited
-        push!(visited, node)
-        for input in node.inputs
-            visit!(input, visited, order)
-        end
-        push!(order, node)
-    end
-    return nothing
-end
+==(x::Constant{X}, y::Constant{Y}) where {X,Y} =
+    X === Y && x.output == y.output
 
-function topological_sort(root::GraphNode)
-    # TODO: Maybe change to IdSet?
-    visited = Set{GraphNode}()
-    order = Vector{GraphNode}()
-    visit!(root, visited, order)
-    return order
-end
+==(x::Variable{X}, y::Variable{Y}) where {X,Y} =
+    X === Y && x.output == y.output && x.gradient == y.gradient
 
-compute!(::Constant) = nothing
-compute!(::Variable) = nothing
-compute!(node::Operator) = node.output = compute!(node, [input.output for input in node.inputs]...)
-
-compute!(::ScalarOperator{F}, x) where {F} = F.instance(x)
-compute!(::ScalarOperator{F}, x, y) where {F} = F.instance(x, y)
-compute!(::ScalarOperator{F}, x, y, z, args...) where {F} = error("Scalar operations on more than two arguments are disabled")
-compute!(::BroadcastedOperator{F}, x) where {F} = F.instance.(x)
-compute!(::BroadcastedOperator{F}, x, y) where {F} = F.instance.(x, y)
-compute!(::BroadcastedOperator{F}, x, y, z, args...) where {F} = error("Broadcast operations on more than two arguments are disabled")
-
-function compute!(compute_order::Vector{GraphNode})
-    for node in compute_order
-        compute!(node)
-    end
-
-    return last(compute_order).output
-end
-
-function evaluate!(root::GraphNode)
-    order = topological_sort(root)
-    return compute!(order)
-end
-
-diff(::BroadcastedOperator{typeof(+)}, x, y) = tuple(1, 1)
-diff(::BroadcastedOperator{typeof(sin)}, x) = tuple(cos.(x))
-diff(::BroadcastedOperator{typeof(*)}, x, y) = tuple(y, x)
-
-function gradient(f, args...)
-    root = f(args...)
-    @assert root isa GraphNode "Function must create computional graph"
-
-    root.gradient = 1.0
-    order = topological_sort(root)
-
-    for node in reverse(order)
-        if node isa Operator
-            gradients = diff(node, [input.output for input in node.inputs]...) .* node.gradient
-            for (input, gradient) in zip(node.inputs, gradients)
-                if !isa(input, Constant)
-                    if isnothing(input.gradient)
-                        input.gradient = gradient
-                    else
-                        input.gradient += gradient
-                    end
-                end
-            end
-        end
-    end
-end
-
+==(x::Operator{FX,X}, y::Operator{FY,Y}) where {FX,FY,X,Y} =
+    FX === FY && X === Y &&
+    x.output == y.output &&
+    x.gradient == y.gradient &&
+    all([a == b for (a, b) in zip(x.inputs, y.inputs)])
 
 # Base methods overloading
 
-promote_node(x) = Constant(x)
+function clean_constant(x)
+    if x isa Base.Broadcast.Broadcasted
+        return Base.materialize(x)
+    else
+        return x
+    end
+end
+
+promote_node(x) = Constant(clean_constant(x))
 
 Base.broadcasted(f, x::GraphNode) = BroadcastedOperator(f, x)
 Base.broadcasted(f, x::GraphNode, y::GraphNode) = BroadcastedOperator(f, x, y)
@@ -177,29 +157,83 @@ import Base: +, -, *, /, ^
 +(x, y::GraphNode) = ScalarOperator(+, promote_node(x), y)
 +(x::GraphNode, y) = ScalarOperator(+, x, promote_node(y))
 +(x::GraphNode) = ScalarOperator(+, x)
+diff(::Operator{typeof(+)}, x, y) = tuple(1, 1)
+diff(::Operator{typeof(+)}, x) = tuple(1)
 
 -(x::GraphNode, y::GraphNode) = ScalarOperator(-, x, y)
 -(x, y::GraphNode) = ScalarOperator(-, promote_node(x), y)
 -(x::GraphNode, y) = ScalarOperator(-, x, promote_node(y))
 -(x::GraphNode) = ScalarOperator(-, x)
+diff(::Operator{typeof(-)}, x, y) = tuple(1, -1)
+diff(::Operator{typeof(-)}, x) = tuple(-1)
 
 *(x::GraphNode, y::GraphNode) = ScalarOperator(*, x, y)
 *(x, y::GraphNode) = ScalarOperator(*, promote_node(x), y)
 *(x, y) = ScalarOperator(*, x, promote_node(y))
+diff(::Operator{typeof(*)}, x, y) = tuple(y, x)
 
 /(x::GraphNode, y::GraphNode) = ScalarOperator(/, x, y)
 /(x, y::GraphNode) = ScalarOperator(/, promote_node(x), y)
 /(x::GraphNode, y) = ScalarOperator(/, x, promote_node(y))
+diff(::Operator{typeof(/)}, x, y) = tuple(1 ./ y, -x ./ y .^ 2)
 
 ^(x::GraphNode, y::GraphNode) = ScalarOperator(^, x, y)
 ^(x, y::GraphNode) = ScalarOperator(^, promote_node(x), y)
 ^(x::GraphNode, y) = ScalarOperator(^, x, promote_node(y))
+diff(::Operator{typeof(^)}, x, y) = tuple(y .* x .^ (y .- 1), x .^ y .* log.(x))
 
 import Base: sum, sin, log, max
 import Statistics: mean
 
 # TODO: Add proper handling
 sum(x::GraphNode; dims=1) = ScalarOperator(sum, x, true)
+diff(::Operator{typeof(sum),T}, x) where {T} = tuple(ones(T, size(x)))
+
 sin(x::GraphNode) = ScalarOperator(sin, x)
+diff(::Operator{typeof(sin)}, x) = tuple(cos.(x))
+
 log(x::GraphNode) = ScalarOperator(log, x)
+diff(::Operator{typeof(log)}, x) = tuple(1 ./ x)
+
 mean(x::GraphNode) = ScalarOperator(mean, x, true)
+diff(::Operator{typeof(mean),T}, x) where {T} = tuple(fill(one(eltype(T)) / length(x), size(x)))
+
+max(x::GraphNode) = ScalarOperator(max, x, true)
+diff(::Operator{typeof(max)}, x) = tuple((x .== maximum(x)) .* one(eltype(x)))
+
+
+diff(::Operator{typeof(sigmoid)}, x) = tuple(exp.(-x) ./ (1 .+ exp.(-x)) .^ 2)
+diff(::Operator{typeof(relu)}, x) = tuple((x .> 0) .* one(eltype(x)))
+
+
+# Show method for debugging
+
+import Base: show
+
+function show(io::IO, op::GraphNode)
+    print(io, to_string(op))
+end
+
+function to_string(op::Operator{F}) where {F}
+    f_name = if op isa BroadcastedOperator
+        "."
+    else
+        ""
+    end * string(F.instance)
+    return f_name * "($(
+        join(
+            [to_string(input) for input in op.inputs],
+            ", "
+        )
+        ))"
+end
+
+function to_string(node::GraphNode)
+    if node isa Constant
+        return node.name === nothing ? string(node.output) : node.name * " size = $(size(node.output))"
+    elseif node isa Variable
+        return node.name === nothing ? "?" : node.name * " size = $(size(node.output))"
+    else
+        return "<?>"
+    end
+end
