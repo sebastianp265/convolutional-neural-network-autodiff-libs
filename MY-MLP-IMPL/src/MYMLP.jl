@@ -17,4 +17,10 @@ include("gradient.jl")
 export topological_sort, compute!,
     gradient!, evaluate!
 
+include("data_loader.jl")
+export DataLoader
+
+include("optimisers.jl")
+export Adam, setup, update!
+
 end

@@ -225,34 +225,3 @@ diff(::BroadcastedOperator{typeof(relu)}, x, g) = begin
     return tuple(g .* grad)
 end
 
-# Show method for debugging
-
-import Base: show
-
-function show(io::IO, op::GraphNode)
-    print(io, to_string(op))
-end
-
-function to_string(op::Operator{F}) where {F}
-    f_name = if op isa BroadcastedOperator
-        "."
-    else
-        ""
-    end * string(F.instance)
-    return f_name * "($(
-        join(
-            [to_string(input) for input in op.inputs],
-            ", "
-        )
-        ))"
-end
-
-function to_string(node::GraphNode)
-    if node isa Constant
-        return node.name === nothing ? string(node.output) : node.name * " size = $(size(node.output))"
-    elseif node isa Variable
-        return node.name === nothing ? "?" : node.name * " size = $(size(node.output))"
-    else
-        return "<?>"
-    end
-end

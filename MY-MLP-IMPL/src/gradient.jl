@@ -100,6 +100,7 @@ function map_single_arg(arg)
 
         return NamedTuple{names}(mapped)
     else
+        error("XD$arg")
         return nothing
     end
 end

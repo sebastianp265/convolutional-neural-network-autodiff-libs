@@ -127,18 +127,3 @@ end
     flux_expr = Flux.Losses.binarycrossentropy(x, y)
     @test evaluate!(flux_expr) == expected_crossentropy_evaluation
 end
-
-
-@testset "Show Computational Graph" begin
-    x = Variable(3.0, "x")
-    y = Variable(4.0, "y")
-
-    function e(e::GraphNode)
-        io = IOBuffer()
-        show(io, e)
-        return String(take!(io))
-    end
-
-    @test e(x .* y) == ".*(x, y)"
-    @test e((x .+ y) * (y .+ x)) == "*(.+(x, y), .+(y, x))"
-end
