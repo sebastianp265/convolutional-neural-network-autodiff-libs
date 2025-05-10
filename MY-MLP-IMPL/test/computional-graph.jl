@@ -11,14 +11,14 @@
 
     @test typeof(x_int * two) == ScalarOperator{typeof(*),Vector{Int64}}
     @test typeof(x_float * two) == ScalarOperator{typeof(*),Vector{Float32}}
-    @test typeof(x_int / two) == ScalarOperator{typeof(/),Vector{Int64}}
+    @test typeof(x_int / two) == ScalarOperator{typeof(/),Vector{Float64}}
     @test typeof(x_float / two) == ScalarOperator{typeof(/),Vector{Float32}}
     @test typeof(x_int .^ two) == BroadcastedOperator{typeof(^),Vector{Int64}}
     @test typeof(x_float .^ two) == BroadcastedOperator{typeof(^),Vector{Float32}}
     @test typeof(x_int .+ two) == BroadcastedOperator{typeof(+),Vector{Int64}}
     @test typeof(x_float .+ two) == BroadcastedOperator{typeof(+),Vector{Float32}}
 
-    y = Variable(Float64.([i^2 for i in 1:10]))
+    y = Variable(Float64.([i^2 for i in 1:4]))
 
     @test typeof(y .* x_int) == BroadcastedOperator{typeof(*),Vector{Float64}}
     @test typeof(y .* x_float) == BroadcastedOperator{typeof(*),Vector{Float64}}
@@ -62,8 +62,7 @@ end
         BroadcastedOperator{typeof(-),Vector{Float32}}
     ]
 
-    output = compute!(traverse_order)
-    @test output == [1^2 - 1^3 - 1, 8^2 - 2^3 - 1, 27^2 - 3^3 - 1]
+    @test expr.output == [1^2 - 1^3 - 1, 8^2 - 2^3 - 1, 27^2 - 3^3 - 1]
 end
 
 @testset "Computional Graph Computation" begin
@@ -84,46 +83,54 @@ end
         BroadcastedOperator(
             -,
             BroadcastedOperator(
-                *,
+                -,
                 BroadcastedOperator(
-                    -,
+                    xlogy,
                     Variable(y_unwraped),
-                ),
-                BroadcastedOperator(
-                    log,
                     BroadcastedOperator(
                         +,
                         Variable(x_unwraped),
                         Constant(eps(Float32))
                     ),
-                )
+                ),
             ),
             BroadcastedOperator(
-                *,
+                xlogy,
                 BroadcastedOperator(
                     -,
                     Constant(1),
                     Variable(y_unwraped)
                 ),
                 BroadcastedOperator(
-                    log,
+                    +,
                     BroadcastedOperator(
-                        +,
-                        BroadcastedOperator(
-                            -,
-                            Constant(1),
-                            Variable(x_unwraped)
-                        ),
-                        Constant(eps(Float32))
+                        -,
+                        Constant(1),
+                        Variable(x_unwraped)
                     ),
+                    Constant(eps(Float32))
                 ),
             ),
         ),
-        true
     )
-
-    @test evaluate!(expr) == expected_crossentropy_evaluation
+    traverse_order = topological_sort(expr)
+    @test map(node -> typeof(node), traverse_order) == [
+        Variable{Vector{Float64}},
+        Variable{Vector{Float32}},
+        Constant{Float32},
+        BroadcastedOperator{typeof(+),Vector{Float32}},
+        BroadcastedOperator{typeof(xlogy),Vector{Float64}},
+        BroadcastedOperator{typeof(-),Vector{Float64}},
+        Constant{Int64},
+        BroadcastedOperator{typeof(-),Vector{Float64}},
+        BroadcastedOperator{typeof(-),Vector{Float32}},
+        BroadcastedOperator{typeof(+),Vector{Float32}},
+        BroadcastedOperator{typeof(xlogy),Vector{Float64}},
+        BroadcastedOperator{typeof(-),Vector{Float64}},
+        ScalarOperator{typeof(mean),Float64}
+    ]
+    @test expr.output == expected_crossentropy_evaluation
 
     flux_expr = Flux.Losses.binarycrossentropy(x, y)
-    @test evaluate!(flux_expr) == expected_crossentropy_evaluation
+    @test flux_expr.output == expected_crossentropy_evaluation
 end

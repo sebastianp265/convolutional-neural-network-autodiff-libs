@@ -74,6 +74,7 @@ function _update!(opt_state, updateable_state, gradient_state)
 
 end
 
+# TODO: Delete after final impl
 function assert_types_correct(opt_state_t, updateable_state_t, gradient_state_t)
     if (updateable_state_t <: Function && opt_state_t === Tuple{} && isnothing(gradient_state_t)) ||
        (isstructtype(updateable_state_t) && opt_state_t === NamedTuple && gradient_state_t === NamedTuple) ||
@@ -91,7 +92,7 @@ function optimize!(leaf::Leaf, x::AbstractArray{T}, gradient::AbstractArray{T}) 
     mt, vt, βt = leaf.state
 
     mt .= β[1] .* mt .+ (1 .- β[1]) .* gradient
-    vt .= β[2] .* vt .+ (1 .- β[2]) .* gradient .^ 2
+    vt .= β[2] .* vt .+ (1 .- β[2]) .* abs2.(gradient)
     dx = mt / (1 - βt[1]) ./ (sqrt.(vt / (1 - βt[2])) .+ ϵ) * ƞ
 
     x .= x .- dx

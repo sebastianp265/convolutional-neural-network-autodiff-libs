@@ -7,7 +7,7 @@ mutable struct DataLoader
 
     function DataLoader(data::Tuple; batchsize::Int, shuffle::Bool=true)
         if shuffle
-            data = tuple([g[randperm(length(g))] for g in data]...)
+            data = tuple([g[:, randperm(size(g)[2])] for g in data]...)
         end
         new(data, batchsize, shuffle)
     end

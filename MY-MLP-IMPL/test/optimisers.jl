@@ -1,10 +1,3 @@
-import Base: ==
-
-==(x::Flux.Optimisers.Leaf, y::MYMLP.Leaf) = x.rule == x.rule && x.state == y.state
-==(x::Flux.Optimisers.Adam, y::MYMLP.Adam) = x.eta == y.eta && x.beta == y.beta && x.epsilon == y.epsilon
-==(x::Flux.Chain, y::MYMLP.Chain) = all([a == b for (a, b) in zip(x.layers, y.layers)])
-==(x::Flux.Dense, y::MYMLP.Dense) = x.weight == y.weight.output && x.bias == y.bias.output
-
 @testset "Adam optimizer initialization" begin
     flux_model = Flux.Chain(
         Flux.Dense(3, 1, Flux.sigmoid)

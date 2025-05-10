@@ -24,44 +24,41 @@ function topological_sort(root::GraphNode)
     return order
 end
 
-compute!(::Constant) = nothing
-compute!(::Variable) = nothing
-compute!(node::Operator) = node.output = compute!(node, [input.output for input in node.inputs]...)
+clear_output!(node::Operator) = node.output = nothing
+clear_output!(node::Variable) = node.output = nothing
+clear_output!(::GraphNode) = nothing
 
-compute!(::ScalarOperator{F}, x) where {F} = F.instance(x)
-compute!(::ScalarOperator{F}, x, y) where {F} = F.instance(x, y)
-compute!(::ScalarOperator{F}, x, y, z, args...) where {F} = error("Scalar operations on more than two arguments are disabled")
-compute!(::BroadcastedOperator{F}, x) where {F} = F.instance.(x)
-compute!(::BroadcastedOperator{F}, x, y) where {F} = F.instance.(x, y)
-compute!(::BroadcastedOperator{F}, x, y, z, args...) where {F} = error("Broadcast operations on more than two arguments are disabled")
-
-function compute!(compute_order::Vector{GraphNode})
+function clear_output!(compute_order::Vector{GraphNode})
     for node in compute_order
-        compute!(node)
+        clear_output!(node)
     end
-
-    return last(compute_order).output
-end
-
-function evaluate!(root::GraphNode)
-    order = topological_sort(root)
-    return compute!(order)
 end
 
 is_output_scalar(::GraphNode{T}) where {T} = T <: Number
 
+reset_gradient!(node::Variable) = node.gradient = nothing
+reset_gradient!(node::Operator) = node.gradient = nothing
+reset_gradient!(::Constant) = nothing
+function reset_gradient!(compute_order::Vector{GraphNode})
+    for node in compute_order
+        reset_gradient!(node)
+    end
+end
+
 function gradient!(f::Function, args...)
-    root::GraphNode = f(args...)
+    root = f(args...)
     # TODO: Check if necessary?
     if root isa Constant
         return zeros(length(args))
     end
-    @assert is_output_scalar(root) "Function return value must be a scalar"
-
-    root.gradient = one(eltype(root))
+    @assert root isa GraphNode
+    if !is_output_scalar(root)
+        error("Function return value must be a scalar")
+    end
 
     order = topological_sort(root)
-    compute!(order)
+    reset_gradient!(order)
+    root.gradient = one(eltype(root))
 
     for node in reverse(order)
         if node isa Operator
@@ -71,6 +68,7 @@ function gradient!(f::Function, args...)
                     if isnothing(input.gradient)
                         input.gradient = grad
                     else
+                        # TODO: Add broadcasted?
                         input.gradient += grad
                     end
                 end
@@ -100,8 +98,7 @@ function map_single_arg(arg)
 
         return NamedTuple{names}(mapped)
     else
-        error("XD$arg")
-        return nothing
+        error("$arg")
     end
 end
 
