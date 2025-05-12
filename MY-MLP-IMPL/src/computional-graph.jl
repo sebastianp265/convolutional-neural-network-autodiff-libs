@@ -79,7 +79,6 @@ acc_to_size(g, s) = begin
             #TODO: Investigate if needed
             res
         end
-        # TODO: Invesitgate
     elseif s == ()
         return zero(eltype(g))
     else
@@ -114,7 +113,6 @@ import Base: sum, sin, log, max
 import Statistics: mean
 
 sum(x::GraphNode; dims...) = ScalarOperator(sum, x; dims...)
-sum(x::GraphNode) = ScalarOperator(sum, x)
 diff(::ScalarOperator{typeof(sum),T}, x, g) where {T} = tuple(g .* ones(T, size(x)))
 
 sin(x::GraphNode) = ScalarOperator(sin, x)

@@ -1,32 +1,50 @@
 using Random
 
-mutable struct DataLoader
-    data::Tuple
+mutable struct DataLoader{D}
+    data::D
     batchsize::Int
     shuffle::Bool
-
-    function DataLoader(data::Tuple; batchsize::Int, shuffle::Bool=true)
-        if shuffle
-            data = tuple([g[:, randperm(size(g)[2])] for g in data]...)
-        end
-        new(data, batchsize, shuffle)
-    end
+    rng::AbstractRNG
 end
 
-function Base.iterate(dl::DataLoader, state=1)
-    data = dl.data
-    batch_size = dl.batchsize
+function DataLoader(
+    data::Tuple;
+    batchsize::Int,
+    shuffle::Bool=true,
+    rng::AbstractRNG=Random.default_rng()
+)
+    return DataLoader(data, batchsize, shuffle, rng)
+end
 
-    n_samples = size(data[1])[2]
-    n_batches = ceil(Int, n_samples / batch_size)
+struct DataLoaderIterator{D}
+    loader::DataLoader{D}
+    order::Vector{Int}
+    position::Int
+end
 
-    if state > n_batches
+function Base.iterate(iter::DataLoaderIterator, state=iter.position)
+    data = iter.loader.data
+    batchsize = iter.loader.batchsize
+    order = iter.order
+    n_samples = length(order)
+
+    if state > n_samples
         return nothing
     end
 
-    start_idx = (state - 1) * batch_size + 1
-    end_idx = min(state * batch_size, n_samples)
+    end_idx = min(state + batchsize - 1, n_samples)
+    batch_indices = order[state:end_idx]
 
-    batch = tuple([g[:, start_idx:end_idx] for g in data]...)
-    return batch, state + 1
+    batch = tuple([g[:, batch_indices] for g in data]...)
+    return batch, end_idx + 1
 end
+
+function Base.iterate(dl::DataLoader, state=1)
+    order = dl.shuffle ? randperm(dl.rng, size(dl.data[1], 2)) : collect(1:size(dl.data[1], 2))
+    iter = DataLoaderIterator(dl, order, state)
+    return iterate(iter)
+end
+
+Base.IteratorSize(::Type{<:DataLoader}) = Base.SizeUnknown()
+Base.IteratorEltype(::Type{<:DataLoader}) = Base.EltypeUnknown()
+
