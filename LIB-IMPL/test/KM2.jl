@@ -2,10 +2,10 @@ using JLD2, Statistics
 import Flux, Random
 
 @testset "KM2" begin
-    X_train = load("../data/imdb_dataset_prepared.jld2", "X_train")
-    y_train = load("../data/imdb_dataset_prepared.jld2", "y_train")
-    X_test = load("../data/imdb_dataset_prepared.jld2", "X_test")
-    y_test = load("../data/imdb_dataset_prepared.jld2", "y_test")
+    X_train = load("../data/KM2/imdb_dataset_prepared.jld2", "X_train")
+    y_train = load("../data/KM2/imdb_dataset_prepared.jld2", "y_train")
+    X_test = load("../data/KM2/imdb_dataset_prepared.jld2", "X_test")
+    y_test = load("../data/KM2/imdb_dataset_prepared.jld2", "y_test")
 
     flux_dataset = Flux.DataLoader((X_train, y_train), batchsize=64, shuffle=false)
     my_dataset = DataLoader((X_train, y_train), batchsize=64, shuffle=false)

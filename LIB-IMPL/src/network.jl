@@ -17,11 +17,28 @@ function (layer::Dense)(x)
     layer.σ.(layer.weight * x .+ layer.bias)
 end
 
-struct Chain
-    layers::Tuple{Vararg{Dense}}
+struct Embedding{W<:AbstractMatrix}
+    weight::W
 end
 
-function Chain(layers::Dense...)
+Embedding(in::Integer, out::Integer; init=randn32) = Embedding(init(out, in))
+
+(m::Embedding)(x::AbstractArray) = reshape(gather(m.weight, vec(x)), :, size(x)...)
+
+function gather(W::AbstractMatrix, idxs::AbstractVector{<:Integer})
+    emb_dim = size(W, 1)
+    out = Matrix{eltype(W)}(undef, emb_dim, length(idxs))
+    for (j, idx) in enumerate(idxs)
+        out[:, j] = W[:, idx]
+    end
+    return out
+end
+
+struct Chain
+    layers::Tuple
+end
+
+function Chain(layers...)
     Chain(layers)
 end
 

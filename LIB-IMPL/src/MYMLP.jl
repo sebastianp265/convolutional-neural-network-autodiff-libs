@@ -11,7 +11,7 @@ export GraphNode, Operator, Constant, Variable,
     ScalarOperator, BroadcastedOperator
 
 include("network.jl")
-export Dense, Chain
+export Dense, Chain, Embedding
 
 include("gradient.jl")
 export topological_sort, gradient!
@@ -23,6 +23,6 @@ include("optimisers.jl")
 export Adam, setup, update!
 
 include("rng.jl")
-export glorot_uniform
+export glorot_uniform, randn32
 
 end

@@ -13,3 +13,5 @@ nfan(n_out, n_in) = n_in, n_out # In case of Dense kernels: arranged as matrices
 nfan(dims::Tuple) = nfan(dims...)
 nfan(dims...) = prod(dims[1:end-2]) .* (dims[end-1], dims[end]) # In case of convolution kernels
 
+randn32(dims::Integer...) = Base.randn(Float32, dims...)
+randn32(rng::AbstractRNG, dims::Integer...) = randn(rng, Float32, dims...)

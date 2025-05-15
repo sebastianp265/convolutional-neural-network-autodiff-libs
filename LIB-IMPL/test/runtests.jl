@@ -20,10 +20,11 @@ import Base: ==
     x.gradient == y.gradient &&
     all([a == b for (a, b) in zip(x.inputs, y.inputs)])
 
-include("computional-graph.jl")
-include("gradient.jl")
-include("data_loader.jl")
-include("optimisers.jl")
-include("rng.jl")
-include("KM2.jl")
-
+#include("computional-graph.jl")
+#include("gradient.jl")
+#include("data_loader.jl")
+#include("optimisers.jl")
+#include("rng.jl")
+#include("KM2.jl")
+#include("cnn.jl")
+include("KM3.jl")
