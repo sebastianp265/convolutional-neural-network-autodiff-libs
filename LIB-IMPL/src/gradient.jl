@@ -97,6 +97,8 @@ function map_single_arg(arg)
         mapped = map(map_single_arg, vals)
 
         return NamedTuple{names}(mapped)
+    elseif typeof(arg) <: Number
+        return nothing
     else
         error("$arg")
     end

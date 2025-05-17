@@ -143,7 +143,6 @@ end
 
 to_3d(x::GraphNode, s::NTuple{2,Integer}) = ScalarOperator(to_3d, x, promote_node(s))
 diff(::ScalarOperator{typeof(to_3d)}, x, s, g) = begin
-    # Reshape gradient back to original matrix shape
     tuple(reshape(g, size(x)), nothing)
 end
 
@@ -160,3 +159,67 @@ import Base: permutedims
 
 permutedims(x::GraphNode, perm) = ScalarOperator(permutedims, x, promote_node(perm))
 diff(::ScalarOperator{typeof(permutedims)}, x, perm, g) = tuple(permutedims(g, invperm(perm)), nothing)
+
+conv1d(x::GraphNode, y::GraphNode, z::GraphNode, σ, stride, pad, dilation, groups) =
+    ScalarOperator(conv1d, x, y, z, promote_node(σ),
+        promote_node(stride), promote_node(pad), promote_node(dilation), promote_node(groups))
+
+diff(::ScalarOperator{typeof(conv1d)}, W, x, b, σ, stride, pad, dilation, groups, g) = begin
+    kernel_size, in_channels_per_group, out_channels = size(W)
+    seq_len, features, batch_size = size(x)
+
+    grad_W = zeros(eltype(g), size(W))
+    grad_x = zeros(eltype(g), size(x))
+    grad_b = zeros(eltype(g), size(b))
+
+    if pad[1] > 0 || pad[2] > 0
+        padded_x = zeros(eltype(x), seq_len + pad[1] + pad[2], features, batch_size)
+        padded_x[pad[1]+1:pad[1]+seq_len, :, :] = x
+        x = padded_x
+        seq_len = size(x, 1)
+
+        padded_grad_x = zeros(eltype(grad_x), seq_len, features, batch_size)
+        grad_x = padded_grad_x
+    end
+
+    out_seq_len = div(seq_len - (kernel_size - 1) * dilation[1] - 1, stride[1]) + 1
+
+    result = conv1d(W, x, b, identity, stride, pad, dilation, groups)
+
+    if σ != identity
+        g = g .* σ'.(result)
+    end
+
+    for batch in 1:batch_size
+        for t in 1:out_seq_len
+            t_start = (t - 1) * stride[1] + 1
+            for out_ch in 1:out_channels
+                grad_b[out_ch] += g[t, out_ch, batch]
+
+                for g_idx in 1:groups
+                    in_ch_start = (g_idx - 1) * in_channels_per_group + 1
+                    in_ch_end = g_idx * in_channels_per_group
+                    for in_ch_offset in 1:in_channels_per_group
+                        in_ch = in_ch_start + in_ch_offset - 1
+                        for k in 1:kernel_size
+                            t_pos = t_start + (k - 1) * dilation[1]
+                            grad_W[k, in_ch_offset, out_ch] += x[t_pos, in_ch, batch] * g[t, out_ch, batch]
+                            grad_x[t_pos, in_ch, batch] += W[k, in_ch_offset, out_ch] * g[t, out_ch, batch]
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if pad[1] > 0 || pad[2] > 0
+        grad_x = grad_x[pad[1]+1:pad[1]+seq_len-pad[2], :, :]
+    end
+
+    return (grad_W, grad_x, grad_b, nothing, nothing, nothing, nothing, nothing)
+end
+
+flatten(x::GraphNode) = ScalarOperator(flatten, x)
+diff(::ScalarOperator{typeof(flatten)}, x, g) = begin
+    return (reshape(g, size(x)))
+end

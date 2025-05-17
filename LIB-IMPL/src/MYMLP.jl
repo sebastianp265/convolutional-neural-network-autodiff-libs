@@ -7,14 +7,14 @@ include("loss_functions.jl")
 export crossentropy, binarycrossentropy, xlogy
 
 include("utils.jl")
-export to_3d, gather
+export to_3d, gather, conv1d, flatten
 
 include("computional-graph.jl")
 export GraphNode, Operator, Constant, Variable,
-    ScalarOperator, BroadcastedOperator, gather, to_3d
+    ScalarOperator, BroadcastedOperator
 
 include("network.jl")
-export Dense, Chain, Embedding
+export Dense, Chain, Embedding, Conv
 
 include("gradient.jl")
 export topological_sort, gradient!
