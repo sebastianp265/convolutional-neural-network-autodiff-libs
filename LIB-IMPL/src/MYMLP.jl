@@ -6,9 +6,12 @@ export relu, sigmoid
 include("loss_functions.jl")
 export crossentropy, binarycrossentropy, xlogy
 
+include("utils.jl")
+export to_3d, gather
+
 include("computional-graph.jl")
 export GraphNode, Operator, Constant, Variable,
-    ScalarOperator, BroadcastedOperator
+    ScalarOperator, BroadcastedOperator, gather, to_3d
 
 include("network.jl")
 export Dense, Chain, Embedding

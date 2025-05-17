@@ -1,9 +1,10 @@
 abstract type GraphNode{T} end
 abstract type Operator{F,T} <: GraphNode{T} end
 
-import Base: eltype
+import Base: eltype, size
 
 eltype(::GraphNode{T}) where {T} = eltype(T)
+size(x::GraphNode, dims...) = size(x.output, dims...)
 
 struct Constant{T} <: GraphNode{T}
     output::T
@@ -139,3 +140,23 @@ diff(::BroadcastedOperator{typeof(xlogy)}, x, y, g) = begin
     dy = g .* (x ./ y)
     return (dx, dy)
 end
+
+to_3d(x::GraphNode, s::NTuple{2,Integer}) = ScalarOperator(to_3d, x, promote_node(s))
+diff(::ScalarOperator{typeof(to_3d)}, x, s, g) = begin
+    # Reshape gradient back to original matrix shape
+    tuple(reshape(g, size(x)), nothing)
+end
+
+gather(x::GraphNode, y) = ScalarOperator(gather, x, promote_node(y))
+diff(::ScalarOperator{typeof(gather)}, W, idxs, g) = begin
+    grad_W = zeros(eltype(g), size(W))
+    for (j, idx) in enumerate(idxs)
+        grad_W[:, idx] .+= g[:, j]
+    end
+    return (grad_W, nothing)
+end
+
+import Base: permutedims
+
+permutedims(x::GraphNode, perm) = ScalarOperator(permutedims, x, promote_node(perm))
+diff(::ScalarOperator{typeof(permutedims)}, x, perm, g) = tuple(permutedims(g, invperm(perm)), nothing)
