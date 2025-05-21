@@ -165,9 +165,9 @@ conv1d(x::GraphNode, y::GraphNode, z::GraphNode, σ, stride, pad, dilation, grou
         promote_node(stride), promote_node(pad), promote_node(dilation), promote_node(groups))
 
 diff(::ScalarOperator{typeof(conv1d)}, W, x, b, σ, stride, pad, dilation, groups, g) = begin
+    #print(g)
     kernel_size, in_channels_per_group, out_channels = size(W)
     seq_len, features, batch_size = size(x)
-
     grad_W = zeros(eltype(g), size(W))
     grad_x = zeros(eltype(g), size(x))
     grad_b = zeros(eltype(g), size(b))
@@ -211,7 +211,6 @@ diff(::ScalarOperator{typeof(conv1d)}, W, x, b, σ, stride, pad, dilation, group
             end
         end
     end
-
     if pad[1] > 0 || pad[2] > 0
         grad_x = grad_x[pad[1]+1:pad[1]+seq_len-pad[2], :, :]
     end
@@ -219,7 +218,29 @@ diff(::ScalarOperator{typeof(conv1d)}, W, x, b, σ, stride, pad, dilation, group
     return (grad_W, grad_x, grad_b, nothing, nothing, nothing, nothing, nothing)
 end
 
+
+maxpool(x::GraphNode, k::NTuple{1,Int}, pad::NTuple{2,Int}, stride::NTuple{1,Int}) =
+    ScalarOperator(maxpool, x, promote_node(k), promote_node(pad), promote_node(stride))
+
+diff(::ScalarOperator{typeof(maxpool)}, x, k, pad, stride, g) = begin
+    seq_len, features, batch_size = size(x)
+    padded_g = zeros(eltype(g), seq_len, features, batch_size)
+    out_seq_len = Int((seq_len - pad[1]) / k[1])
+    for batch in 1:batch_size
+        for seq in 1:out_seq_len
+            t_start = Int((seq-1)*k[1]+1)
+            t_end = Int(seq*k[1])
+            for f in 1:features
+                maxId = argmax(x[t_start:t_end, f, batch])
+                padded_g[maxId[1], f, batch] = g[seq, f, batch]
+                #println(padded_g[t_start:t_end, f, batch])
+            end
+        end
+    end
+    #print(padded_g)
+    return (padded_g, nothing, nothing, nothing)
+end
 flatten(x::GraphNode) = ScalarOperator(flatten, x)
 diff(::ScalarOperator{typeof(flatten)}, x, g) = begin
-    return (reshape(g, size(x)))
+    return (reshape(g, size(x)),)
 end

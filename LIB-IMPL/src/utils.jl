@@ -60,6 +60,24 @@ function conv1d(W::AbstractArray{T,3}, x::AbstractArray{T,3}, b::AbstractVector{
     return σ.(result)
 end 
 
+function maxpool(x::AbstractArray, window::NTuple{1,Int},pad::NTuple{2,Int}, stride::NTuple{1,Int})
+    seq_len, features, batch_size = size(x)
+    out_seq_len = div(seq_len - pad[1], stride[1])
+    result = zeros(eltype(x), out_seq_len, features, batch_size)
+    for batch in 1:batch_size
+        for t in 1:out_seq_len
+            t_start = (t-1)*stride[1] + 1
+            for f in 1:features
+                result[t, f, batch] = maximum(x[t_start:t_start+stride[1]-1, f, batch])
+            end
+        end
+    end
+    
+    return result
+    
+end
+
+
 function flatten(x::AbstractArray)
     return reshape(x, :, size(x)[end])
 end
