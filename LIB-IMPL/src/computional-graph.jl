@@ -94,7 +94,7 @@ end
 diff(::Operator{typeof(-)}, x, y, g) = tuple(g, -g)
 diff(::Operator{typeof(-)}, x, g) = tuple(-g)
 
-*(x::GraphNode, y::GraphNode) = ScalarOperator(*, x, y)
+*(x::GraphNode, y::GraphNode) = ScalarOperator(matmul!, x, y)
 *(x, y::GraphNode) = ScalarOperator(*, promote_node(x), y)
 *(x::GraphNode, y) = ScalarOperator(*, x, promote_node(y))
 diff(::ScalarOperator{typeof(*)}, x, y, g) = tuple(g * y', x' * g)
@@ -228,12 +228,12 @@ diff(::ScalarOperator{typeof(maxpool)}, x, k, pad, stride, g) = begin
     @assert pad[1] == 0 && pad[2] == 0
     out_seq_len = div(seq_len, k[1])
 
-    for batch in 1:batch_size
-        for seq in 1:out_seq_len
-            t_start = (seq - 1) * stride[1] + 1
-            t_end = min(t_start + k[1] - 1, seq_len)
+    for seq in 1:out_seq_len
+        t_start = (seq - 1) * stride[1] + 1
+        t_end = min(t_start + k[1] - 1, seq_len)
+        for batch in 1:batch_size
             for f in 1:features
-                max_idx = argmax(x[t_start:t_end, f, batch])
+                max_idx = argmax(view(x, t_start:t_end, f, batch))
                 result_g[t_start+max_idx-1, f, batch] = g[seq, f, batch]
             end
         end

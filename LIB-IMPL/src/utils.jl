@@ -66,12 +66,12 @@ function maxpool(x::AbstractArray, k::NTuple{1,Int}, pad::NTuple{2,Int}, stride:
     out_seq_len = div(seq_len, k[1])
     result = zeros(eltype(x), out_seq_len, features, batch_size)
 
-    for batch in 1:batch_size
-        for t in 1:out_seq_len
-            t_start = (t - 1) * stride[1] + 1
-            t_end = min(t_start + k[1] - 1, seq_len)
+    for t in 1:out_seq_len
+        t_start = (t - 1) * stride[1] + 1
+        t_end = min(t_start + k[1] - 1, seq_len)
+        for batch in 1:batch_size
             for f in 1:features
-                max_val = maximum(x[t_start:t_end, f, batch])
+                max_val = maximum(view(x, t_start:t_end, f, batch))
                 result[t, f, batch] = max_val
             end
         end

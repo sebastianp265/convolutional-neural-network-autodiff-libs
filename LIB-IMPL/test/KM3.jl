@@ -64,16 +64,4 @@ using ProfileView
     end
     println("My_gradient $t seconds")
     @test flux_grad == my_grad
-    @test size(flux_grad[1][1][1].weight) == size(my_grad[1][1][1].weight)
-
-    # Find indices where weights differ
-    weight_diffs = findall(flux_grad[1][1][1].weight .!= my_grad[1][1][1].weight)
-    println("Indices where weights differ:")
-    println(weight_diffs)
-    println("\nFlux values at those indices:")
-    println(flux_grad[1][1][1].weight[weight_diffs])
-    println("\nMy values at those indices:") 
-    println(my_grad[1][1][1].weight[weight_diffs])
-    println("\nAbsolute differences:")
-    println(abs.(flux_grad[1][1][1].weight[weight_diffs] .- my_grad[1][1][1].weight[weight_diffs]))
 end
