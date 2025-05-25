@@ -187,7 +187,7 @@ diff(::ScalarOperator{typeof(conv1d)}, W, x, b, σ, stride, pad, dilation, group
     result = conv1d(W, x, b, identity, stride, pad, dilation, groups)
 
     if σ != identity
-        g = g .* σ'.(result)
+        g = g .* σ.(result)
     end
 
     for batch in 1:batch_size
@@ -224,22 +224,24 @@ maxpool(x::GraphNode, k::NTuple{1,Int}, pad::NTuple{2,Int}, stride::NTuple{1,Int
 
 diff(::ScalarOperator{typeof(maxpool)}, x, k, pad, stride, g) = begin
     seq_len, features, batch_size = size(x)
-    padded_g = zeros(eltype(g), seq_len, features, batch_size)
-    out_seq_len = Int((seq_len - pad[1]) / k[1])
+    result_g = zeros(eltype(x), seq_len, features, batch_size)
+    @assert pad[1] == 0 && pad[2] == 0
+    out_seq_len = div(seq_len, k[1])
+
     for batch in 1:batch_size
         for seq in 1:out_seq_len
-            t_start = Int((seq-1)*k[1]+1)
-            t_end = Int(seq*k[1])
+            t_start = (seq - 1) * stride[1] + 1
+            t_end = min(t_start + k[1] - 1, seq_len)
             for f in 1:features
-                maxId = argmax(x[t_start:t_end, f, batch])
-                padded_g[maxId[1], f, batch] = g[seq, f, batch]
-                #println(padded_g[t_start:t_end, f, batch])
+                max_idx = argmax(x[t_start:t_end, f, batch])
+                result_g[t_start+max_idx-1, f, batch] = g[seq, f, batch]
             end
         end
     end
-    #print(padded_g)
-    return (padded_g, nothing, nothing, nothing)
+
+    return (result_g, nothing, nothing, nothing)
 end
+
 flatten(x::GraphNode) = ScalarOperator(flatten, x)
 diff(::ScalarOperator{typeof(flatten)}, x, g) = begin
     return (reshape(g, size(x)),)

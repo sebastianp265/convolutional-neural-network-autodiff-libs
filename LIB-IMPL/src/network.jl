@@ -68,10 +68,10 @@ function (c::Conv)(x)
 end
 
 
-struct MaxPool{N,M}
-  k::NTuple{N,Int}
-  pad::NTuple{M,Int}
-  stride::NTuple{N,Int}
+struct MaxPool
+  k::NTuple{1,Int}
+  pad::NTuple{2,Int}
+  stride::NTuple{1,Int}
 end
 
 function MaxPool(k::NTuple{N,Integer}; pad = 0, stride = k) where N
