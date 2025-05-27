@@ -94,7 +94,8 @@ end
 diff(::Operator{typeof(-)}, x, y, g) = tuple(g, -g)
 diff(::Operator{typeof(-)}, x, g) = tuple(-g)
 
-*(x::GraphNode, y::GraphNode) = ScalarOperator(matmul!, x, y)
+#*(x::GraphNode, y::GraphNode) = ScalarOperator(matmul!, x, y)
+*(x::GraphNode, y::GraphNode) = ScalarOperator(*, x, y)
 *(x, y::GraphNode) = ScalarOperator(*, promote_node(x), y)
 *(x::GraphNode, y) = ScalarOperator(*, x, promote_node(y))
 diff(::ScalarOperator{typeof(*)}, x, y, g) = tuple(g * y', x' * g)
@@ -189,28 +190,21 @@ diff(::ScalarOperator{typeof(conv1d)}, W, x, b, σ, stride, pad, dilation, group
     if σ != identity
         g = g .* σ.(result)
     end
-
+ 
+    in_ch_end = groups * in_channels_per_group
+    grad_b[1:out_channels] += vec(sum(sum(g[1:out_seq_len, 1:out_channels, batch_size], dims=1), dims=3))
+    
     for batch in 1:batch_size
         for t in 1:out_seq_len
             t_start = (t - 1) * stride[1] + 1
+            t_pos = t_start + (kernel_size - 1) * dilation[1]
             for out_ch in 1:out_channels
-                grad_b[out_ch] += g[t, out_ch, batch]
-
-                for g_idx in 1:groups
-                    in_ch_start = (g_idx - 1) * in_channels_per_group + 1
-                    in_ch_end = g_idx * in_channels_per_group
-                    for in_ch_offset in 1:in_channels_per_group
-                        in_ch = in_ch_start + in_ch_offset - 1
-                        for k in 1:kernel_size
-                            t_pos = t_start + (k - 1) * dilation[1]
-                            grad_W[k, in_ch_offset, out_ch] += x[t_pos, in_ch, batch] * g[t, out_ch, batch]
-                            grad_x[t_pos, in_ch, batch] += W[k, in_ch_offset, out_ch] * g[t, out_ch, batch]
-                        end
-                    end
-                end
+                grad_W[1:kernel_size, 1:in_channels_per_group, out_ch] += x[t_start:t_pos, 1:in_ch_end, batch] * g[t, out_ch, batch]
+                grad_x[t_start:t_pos, 1:in_ch_end, batch] += W[1:kernel_size, 1:in_channels_per_group, out_ch] * g[t, out_ch, batch]
             end
         end
     end
+    
     if pad[1] > 0 || pad[2] > 0
         grad_x = grad_x[pad[1]+1:pad[1]+seq_len-pad[2], :, :]
     end
