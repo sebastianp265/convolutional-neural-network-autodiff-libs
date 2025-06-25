@@ -94,6 +94,7 @@ end
 diff(::Operator{typeof(-)}, x, y, g) = tuple(g, -g)
 diff(::Operator{typeof(-)}, x, g) = tuple(-g)
 
+#*(x::GraphNode, y::GraphNode) = ScalarOperator(matmul!, x, y)
 *(x::GraphNode, y::GraphNode) = ScalarOperator(*, x, y)
 *(x, y::GraphNode) = ScalarOperator(*, promote_node(x), y)
 *(x::GraphNode, y) = ScalarOperator(*, x, promote_node(y))
@@ -165,9 +166,9 @@ conv1d(x::GraphNode, y::GraphNode, z::GraphNode, σ, stride, pad, dilation, grou
         promote_node(stride), promote_node(pad), promote_node(dilation), promote_node(groups))
 
 diff(::ScalarOperator{typeof(conv1d)}, W, x, b, σ, stride, pad, dilation, groups, g) = begin
+    #print(g)
     kernel_size, in_channels_per_group, out_channels = size(W)
     seq_len, features, batch_size = size(x)
-
     grad_W = zeros(eltype(g), size(W))
     grad_x = zeros(eltype(g), size(x))
     grad_b = zeros(eltype(g), size(b))
@@ -187,31 +188,27 @@ diff(::ScalarOperator{typeof(conv1d)}, W, x, b, σ, stride, pad, dilation, group
     result = conv1d(W, x, b, identity, stride, pad, dilation, groups)
 
     if σ != identity
-        g = g .* σ'.(result)
+        g = g .* σ.(result)
     end
-
-    for batch in 1:batch_size
+ 
+    in_ch_end = groups * in_channels_per_group
+    grad_b[1:out_channels] += vec(sum(sum(g[1:out_seq_len, 1:out_channels, batch_size], dims=1), dims=3))
+    
+    
+    @inbounds for batch in 1:batch_size
         for t in 1:out_seq_len
             t_start = (t - 1) * stride[1] + 1
+            t_pos = t_start + (kernel_size - 1) * dilation[1]
+            x_slice = @views x[t_start:t_pos, 1:in_ch_end, batch]
             for out_ch in 1:out_channels
-                grad_b[out_ch] += g[t, out_ch, batch]
-
-                for g_idx in 1:groups
-                    in_ch_start = (g_idx - 1) * in_channels_per_group + 1
-                    in_ch_end = g_idx * in_channels_per_group
-                    for in_ch_offset in 1:in_channels_per_group
-                        in_ch = in_ch_start + in_ch_offset - 1
-                        for k in 1:kernel_size
-                            t_pos = t_start + (k - 1) * dilation[1]
-                            grad_W[k, in_ch_offset, out_ch] += x[t_pos, in_ch, batch] * g[t, out_ch, batch]
-                            grad_x[t_pos, in_ch, batch] += W[k, in_ch_offset, out_ch] * g[t, out_ch, batch]
-                        end
-                    end
-                end
+                g_val = @views g[t, out_ch, batch]
+                w_val = @views W[:, :, out_ch]
+                grad_W[:, :, out_ch] .+= x_slice * g_val
+                grad_x[t_start:t_pos, 1:in_ch_end, batch] .+= w_val * g_val
             end
         end
     end
-
+    
     if pad[1] > 0 || pad[2] > 0
         grad_x = grad_x[pad[1]+1:pad[1]+seq_len-pad[2], :, :]
     end
@@ -219,7 +216,31 @@ diff(::ScalarOperator{typeof(conv1d)}, W, x, b, σ, stride, pad, dilation, group
     return (grad_W, grad_x, grad_b, nothing, nothing, nothing, nothing, nothing)
 end
 
+
+maxpool(x::GraphNode, k::NTuple{1,Int}, pad::NTuple{2,Int}, stride::NTuple{1,Int}) =
+    ScalarOperator(maxpool, x, promote_node(k), promote_node(pad), promote_node(stride))
+
+diff(::ScalarOperator{typeof(maxpool)}, x, k, pad, stride, g) = begin
+    seq_len, features, batch_size = size(x)
+    result_g = zeros(eltype(x), seq_len, features, batch_size)
+    @assert pad[1] == 0 && pad[2] == 0
+    out_seq_len = div(seq_len, k[1])
+
+    for seq in 1:out_seq_len
+        t_start = (seq - 1) * stride[1] + 1
+        t_end = min(t_start + k[1] - 1, seq_len)
+        for batch in 1:batch_size
+            for f in 1:features
+                max_idx = argmax(view(x, t_start:t_end, f, batch))
+                result_g[t_start+max_idx-1, f, batch] = g[seq, f, batch]
+            end
+        end
+    end
+
+    return (result_g, nothing, nothing, nothing)
+end
+
 flatten(x::GraphNode) = ScalarOperator(flatten, x)
 diff(::ScalarOperator{typeof(flatten)}, x, g) = begin
-    return (reshape(g, size(x)))
+    return (reshape(g, size(x)),)
 end

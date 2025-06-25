@@ -87,7 +87,13 @@ function map_single_arg(arg)
     if arg isa Variable
         return arg.gradient
     elseif arg isa Tuple
-        return map(map_single_arg, arg)
+        mapped = map(map_single_arg, arg)
+
+        if all(isnothing, mapped)
+            return nothing
+        else
+            return mapped
+        end
     elseif isstructtype(typeof(arg))
         names = fieldnames(typeof(arg))
         if length(names) == 0
@@ -96,7 +102,11 @@ function map_single_arg(arg)
         vals = map(name -> getfield(arg, name), names)
         mapped = map(map_single_arg, vals)
 
-        return NamedTuple{names}(mapped)
+        if all(isnothing, mapped)
+            return nothing
+        else
+            return NamedTuple{names}(mapped)
+        end
     elseif typeof(arg) <: Number
         return nothing
     else
