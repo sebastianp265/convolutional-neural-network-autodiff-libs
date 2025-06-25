@@ -14,7 +14,7 @@ export GraphNode, Operator, Constant, Variable,
     ScalarOperator, BroadcastedOperator
 
 include("network.jl")
-export Dense, Chain, Embedding, Conv
+export Dense, Chain, Embedding, Conv, MaxPool
 
 include("gradient.jl")
 export topological_sort, gradient!

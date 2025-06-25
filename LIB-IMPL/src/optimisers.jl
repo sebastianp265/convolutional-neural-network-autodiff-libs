@@ -61,7 +61,7 @@ function _update!(opt_state, updateable_state, gradient_state)
     elseif updateable_state isa Variable
         optimize!(opt_state, updateable_state.output, gradient_state) # TODO: Refactor, remove maybe Variable wrapper and check performance diff?
     elseif isstructtype(typeof(updateable_state))
-        for fn in fieldnames(typeof(updateable_state))
+        for fn in fieldnames(typeof(gradient_state))
             _update!(
                 getfield(opt_state, fn),
                 getfield(updateable_state, fn),
@@ -69,7 +69,8 @@ function _update!(opt_state, updateable_state, gradient_state)
             )
         end
     else
-        error("Unsupported type: $updateable_state")
+        
+        return nothing
     end
 
 end
